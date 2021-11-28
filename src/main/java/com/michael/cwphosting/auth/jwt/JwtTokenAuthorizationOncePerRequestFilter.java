@@ -32,10 +32,10 @@ public class JwtTokenAuthorizationOncePerRequestFilter extends OncePerRequestFil
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
 		log.info("Authentication Request For '{}'", request.getRequestURL());
-
-		if(request.getServletPath().equals("/login")
-				|| request.getServletPath().startsWith("/token/")
-				|| request.getServletPath().startsWith("/user/")
+		log.info(request.getServletPath());
+		if(request.getServletPath().equals("/api/login")
+				|| request.getServletPath().startsWith("/api/token/")
+				|| request.getServletPath().startsWith("/api/user/")
 		){
 			filterChain.doFilter(request, response);
 		}

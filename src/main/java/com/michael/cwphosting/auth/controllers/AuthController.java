@@ -19,7 +19,7 @@ import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 @RestController
 @AllArgsConstructor
 @Slf4j
-@RequestMapping("/token")
+@RequestMapping("/api/token")
 public class AuthController {
 
 	private final RefreshTokenService refreshTokenService;

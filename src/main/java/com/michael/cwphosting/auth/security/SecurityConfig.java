@@ -7,6 +7,7 @@ import com.michael.cwphosting.auth.jwt.TokenUtil;
 import com.michael.cwphosting.auth.services.RefreshTokenService;
 import com.michael.cwphosting.auth.services.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -31,6 +32,7 @@ import static org.springframework.http.HttpMethod.POST;
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
+@Slf4j
 public class SecurityConfig extends WebSecurityConfigurerAdapter {
 	private final PasswordEncoder encoder;
 	private final UserService userService;
@@ -42,7 +44,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 	@Value("${jwt.get.token.uri}")
 	private String authenticationPath;
 
-	@Value("/register")
+	@Value("${jwt.get.register.uri}")
 	private String registerPath;
 
 	@Autowired
@@ -83,13 +85,14 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 			.exceptionHandling().authenticationEntryPoint(jwtUnAuthorizedResponseAuthenticationEntryPoint).and()
 			.sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS);
 
-		http.authorizeRequests().antMatchers("/token/**").permitAll();
-		http.authorizeRequests().antMatchers("/user/**").permitAll();
-		http.authorizeRequests().antMatchers("/users/**").hasAnyAuthority("ADMIN");
+		http.authorizeRequests().antMatchers("/api/token/**").permitAll();
+		http.authorizeRequests().antMatchers("/api/user/**").permitAll();
+		http.authorizeRequests().antMatchers("/api/users/**").hasAnyAuthority("ADMIN");
 
 		http.authorizeRequests().anyRequest().authenticated();
 
 		JwtAuthenticationFilter jwtAuthenticationFilter = new JwtAuthenticationFilter(authenticationManagerBean(), tokenUtil, userService, refreshTokenService );
+		jwtAuthenticationFilter.setFilterProcessesUrl("/api/login");
 		http.addFilter(jwtAuthenticationFilter);
 
 		JwtTokenAuthorizationOncePerRequestFilter jwtAuthenticationTokenFilter = new JwtTokenAuthorizationOncePerRequestFilter(tokenUtil, userService);
@@ -102,6 +105,7 @@ public class SecurityConfig extends WebSecurityConfigurerAdapter {
 
 	@Override
 	public void configure(WebSecurity webSecurity) throws Exception {
+		log.info("Authentication Path: {}", authenticationPath);
 		webSecurity
 				.ignoring().antMatchers(HttpMethod.POST, authenticationPath)
 				.antMatchers(HttpMethod.OPTIONS, "/**")

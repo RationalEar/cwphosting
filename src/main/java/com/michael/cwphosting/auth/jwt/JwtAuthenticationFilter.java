@@ -5,17 +5,15 @@ import com.michael.cwphosting.auth.exceptions.AccountSuspendedAuthenticationExce
 import com.michael.cwphosting.auth.exceptions.LoginAttemptsExeededException;
 import com.michael.cwphosting.auth.exceptions.UserNotFoundAuthenticationException;
 import com.michael.cwphosting.auth.models.User;
-//import com.michael.cwphosting.auth.security.SecretConfig;
 import com.michael.cwphosting.auth.services.RefreshTokenService;
 import com.michael.cwphosting.auth.services.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 import javax.servlet.FilterChain;
@@ -23,7 +21,6 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -36,7 +33,6 @@ public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilte
 	private final TokenUtil tokenUtil;
 	private final UserService userDetailsService;
 	private final RefreshTokenService refreshTokenService;
-	private JwtUserDetails userDetails;
 
 	public JwtAuthenticationFilter(AuthenticationManager authenticationManager, TokenUtil tokenUtil, UserService userDetailService, RefreshTokenService refreshTokenService) {
 		this.authenticationManager = authenticationManager;
@@ -47,8 +43,18 @@ public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilte
 
 	@Override
 	public Authentication attemptAuthentication(HttpServletRequest request, HttpServletResponse response) throws AuthenticationException {
-		String username = request.getParameter("email");
-		String password = request.getParameter("password");
+
+		String username, password;
+		try {
+			Map<String, String> requestMap = new ObjectMapper().readValue(request.getInputStream(), Map.class);
+			username = requestMap.get("username");
+			password = requestMap.get("password");
+		}
+		catch (IOException e) {
+			throw new AuthenticationServiceException(e.getMessage(), e);
+		}
+
+		log.info("Attempt Authentication: {}, {}", username, password);
 		if( userDetailsService.loginAttemptsExceeded(username) ){
 			int minutes = userDetailsService.getWaitTime(username);
 			String s = minutes==1?"minute":"minutes";
@@ -91,7 +97,7 @@ public class JwtAuthenticationFilter extends UsernamePasswordAuthenticationFilte
 
 	@Override
 	protected void unsuccessfulAuthentication(HttpServletRequest request, HttpServletResponse response, AuthenticationException failed) throws IOException, ServletException {
-		String username = request.getParameter("email");
+		String username = request.getParameter("username");
 		if(username !=null){
 			userDetailsService.incrementLoginAttempt(username, request.getRemoteAddr());
 		}
