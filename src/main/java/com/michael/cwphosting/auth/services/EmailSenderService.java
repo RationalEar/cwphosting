@@ -1,12 +1,10 @@
 package com.michael.cwphosting.auth.services;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.mail.DefaultAuthenticator;
 import org.apache.commons.mail.HtmlEmail;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -27,5 +25,12 @@ public class EmailSenderService extends HtmlEmail {
 		setSSLOnConnect(ssl);
 		this.appName = appName;
 		this.appUrl = appUrl;
+	}
+
+	public void initialize(HtmlEmail htmlEmail){
+		htmlEmail.setHostName(this.getHostName());
+		htmlEmail.setSmtpPort(Integer.parseInt(this.getSmtpPort()));
+		htmlEmail.setAuthenticator( this.authenticator );
+		htmlEmail.setSSLOnConnect(this.isSSLOnConnect());
 	}
 }

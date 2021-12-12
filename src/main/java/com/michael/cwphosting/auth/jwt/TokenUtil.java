@@ -40,6 +40,9 @@ public class TokenUtil implements Serializable {
 	@Value("${jwt.account.activation.expire}")
 	private Long accountActivationExpire;
 
+	@Value("${spring.application.hostname}")
+	private String hostname;
+
 	public Long getAccountActivationExpire() {
 		return accountActivationExpire;
 	}
@@ -100,6 +103,8 @@ public class TokenUtil implements Serializable {
 			return JWT.create()
 					.withSubject(user.getUsername())
 					.withExpiresAt(expirationDate)
+					.withIssuedAt(createdDate)
+					.withIssuer(hostname)
 					.sign(algorithm);
 		}
 		else{
@@ -107,6 +112,8 @@ public class TokenUtil implements Serializable {
 			return JWT.create()
 					.withSubject(user.getUsername())
 					.withExpiresAt(expirationDate)
+					.withIssuedAt(createdDate)
+					.withIssuer(hostname)
 					.withClaim("roles", user.getAuthorities().stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList()))
 					.sign(algorithm);
 		}

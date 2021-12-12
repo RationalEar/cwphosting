@@ -51,6 +51,20 @@ public class CwpHostingManagerApplication {
 				role2 = roleRepository.findRoleByName(roleName);
 			}
 
+			roleName = "MANAGER";
+			Optional<Role> role3 = roleRepository.findRoleByName(roleName);
+			if(role3.isEmpty()){
+				roleRepository.insert(new Role(roleName));
+				role3 = roleRepository.findRoleByName(roleName);
+			}
+
+			roleName = "SUPER_ADMIN";
+			Optional<Role> role4 = roleRepository.findRoleByName(roleName);
+			if(role4.isEmpty()){
+				roleRepository.insert(new Role(roleName));
+				role4 = roleRepository.findRoleByName(roleName);
+			}
+
 			if(userService.countUsers()==0){
 				Address address = new Address("Zimbabwe", "Harare", "Address Line One", "Address Line Two", "00263");
 				User newUser = new User("Admin", "User", "admin@example.com", "0123456789", "password", address);

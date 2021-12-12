@@ -28,11 +28,13 @@ public class AuthController {
 	public ResponseEntity<?> refreshToken(HttpServletRequest request, HttpServletResponse response) throws IOException {
 		try {
 			String authorizationHeader = request.getHeader(AUTHORIZATION);
-			if(authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) throw new Exception("A valid autorization header is required");
-			String token = authorizationHeader.substring("Bearer ".length());
-			String accessToken = refreshTokenService.refreshToken(token);
-			response.setHeader("access_token", accessToken);
-			return ResponseEntity.ok(new JwtTokenResponse(accessToken));
+			if(authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
+				String token = authorizationHeader.substring("Bearer ".length());
+				String accessToken = refreshTokenService.refreshToken(token);
+				response.setHeader("access_token", accessToken);
+				return ResponseEntity.ok(new JwtTokenResponse(accessToken));
+			}
+			else throw new Exception("A valid authorization header is required");
 		}
 		catch (Exception e){
 			return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new JwtMessageResponse(e.getMessage()));

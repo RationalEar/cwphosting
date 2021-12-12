@@ -1,5 +1,6 @@
 package com.michael.cwphosting.auth.services;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.michael.cwphosting.auth.exceptions.InvalidEmailException;
 import com.michael.cwphosting.auth.exceptions.InvalidPasswordException;
 import com.michael.cwphosting.auth.exceptions.UserAlreadyExistAuthenticationException;
@@ -7,12 +8,20 @@ import com.michael.cwphosting.auth.models.Role;
 import com.michael.cwphosting.auth.models.User;
 import com.michael.cwphosting.auth.repository.RoleRepository;
 import com.michael.cwphosting.auth.repository.UserRepository;
+import com.mongodb.client.result.UpdateResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.mail.HtmlEmail;
 import org.apache.commons.validator.routines.EmailValidator;
 import org.jsoup.Jsoup;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -22,6 +31,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -35,9 +45,16 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 	private final RoleRepository roleRepository;
 	private final PasswordEncoder passwordEncoder;
 	private EmailSenderService emailSenderService;
+	private MongoTemplate mongoTemplate;
 
 	@Value("${spring.user.password.validation-message}")
 	private String passwordValidationMessage;
+	@Value("${spring.user.password.special-characters}")
+	private String passwordSpecialChars;
+	@Value("${spring.user.password.min-length}")
+	private String passwordMinLength;
+	@Value("${spring.user.password.max-length}")
+	private String passwordMaxLength;
 
 	@Value("${spring.user.suspend-by-default}")
 	private boolean suspendByDefault;
@@ -51,6 +68,11 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 	@Autowired
 	public void setEmailSenderService(EmailSenderService emailSenderService) {
 		this.emailSenderService = emailSenderService;
+	}
+
+	@Autowired
+	public void setMongoTemplate(MongoTemplate mongoTemplate) {
+		this.mongoTemplate = mongoTemplate;
 	}
 
 	public String getPasswordValidationMessage() {
@@ -101,6 +123,56 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 		return userRepository.save(user);
 	}
 
+	public User updateUserDetails(String id, User user){
+		Optional<User> old = userRepository.findUserById(id);
+		if(old.isPresent()){
+			user.setCreated(null);
+			user.setLastLoginAttempt(null);
+			user.setForgottenPasswordTokenExpire(null);
+			log.info("Last login attempt nullified...");
+			ObjectMapper oMapper = new ObjectMapper();
+			Map<String, Object> dataMap = oMapper.convertValue(user, Map.class);
+			dataMap.values().removeIf(Objects::isNull);
+
+			// skip roles, will update separately
+			dataMap.remove("roles");
+
+			Update update = new Update();
+			dataMap.forEach(update::set);
+			Query query = new Query();
+			query.addCriteria(Criteria.where("_id").is(id));
+			UpdateResult u = mongoTemplate.update(User.class).matching(query).apply(update).first();
+
+			Optional<User> updated = userRepository.findUserById(user.getId());
+			if(updated.isPresent()){
+				User toUpdate = updated.get();
+
+				List<Role> roles = new ArrayList<>();
+				for(Role role: user.getRoles()){
+					if(role.getId() != null) roles.add(role);
+				}
+				toUpdate.setRoles( roles );
+
+				userRepository.save(toUpdate);
+				updated = userRepository.findUserById(user.getId());
+			}
+			return updated.isPresent() ? updated.get() : null;
+		}
+		else return null;
+	}
+
+	@Override
+	public User updateUserStatus(String id, Boolean status) {
+		Optional<User> old = userRepository.findUserById(id);
+		if(old.isPresent()){
+			User user = old.get();
+			user.setSuspended(status);
+			userRepository.save(user);
+			return user;
+		}
+		else return null;
+	}
+
 	@Override
 	public Role saveRole(Role role) {
 		return roleRepository.save(role);
@@ -141,6 +213,17 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 	}
 
 	@Override
+	public User findUserById(String id) {
+		Optional<User> user = userRepository.findUserById(id);
+		return user.isPresent() ? user.get() : null;
+	}
+
+	@Override
+	public void deleteUser(User user) {
+		userRepository.delete(user);
+	}
+
+	@Override
 	public List<User> getUsers() {
 		return userRepository.findAll();
 	}
@@ -148,6 +231,15 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 	@Override
 	public List<User> getUsers(int start, int limit) {
 		return userRepository.findAll().subList(start, limit);
+	}
+
+	public Page<User> getUsers(Pageable pageable){
+		return userRepository.findAll(pageable);
+	}
+
+	public Page<User> findUsers(String name, Pageable pageable){
+//		return userRepository.findUserByFirstNameOrLastNameOrEmailContaining(name, pageable);
+		return userRepository.findUserByFirstNameRegexOrLastNameRegexOrEmailRegex(".*"+name+".*", pageable);
 	}
 
 	@Override
@@ -217,23 +309,7 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 	}
 
 	public User signUpUser(User user) {
-
-		if(!isValidEmail(user.getEmail())) throw new InvalidEmailException("The submitted email address is not valid");
-
-		Optional<User> emailUsed = userRepository.findUserByEmail(user.getEmail());
-		if( emailUsed.isPresent() ){
-			throw new UserAlreadyExistAuthenticationException("User with given email already exists");
-		}
-
-		user.setSuspended(suspendByDefault);
-
-		user.setCreated(LocalDateTime.now());
-
-		/*
-		char[] possibleCharacters = (new String("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789~`!@#$%^&()-_=+[{]}|;:,<>?")).toCharArray();
-		String randomStr = RandomStringUtils.random( 64, 0, possibleCharacters.length-1, false, false, possibleCharacters, new SecureRandom() );
-		user.setSalt(randomStr);*/
-
+		setAccountBasics(user);
 		String pwd = user.getPassword();
 		log.info("Password retrieved: {}", pwd);
 		if(!isValidPassword(pwd)) throw new InvalidPasswordException(passwordValidationMessage);
@@ -241,13 +317,12 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 		String encodedPwd = passwordEncoder.encode(pwd);
 		user.setPassword(encodedPwd);
 
-		String activationToken = UUID.randomUUID().toString();
-		user.setActivationToken(activationToken);
-
-		Role role = new Role("USER");
-		List<Role> roles = new ArrayList<>();
-		roles.add(role);
-		user.setRoles(roles);
+		Optional<Role> role = roleRepository.findRoleByName("USER");
+		if(role.isPresent()){
+			List<Role> roles = new ArrayList<>();
+			roles.add(role.get());
+			user.setRoles(roles);
+		}
 
 		log.info("ready to create user");
 		final User createdUser = userRepository.save(user);
@@ -257,10 +332,47 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 		return user;
 	}
 
+	// Admin method for creating user account
+	public User createUserAccount(User user) {
+
+		setAccountBasics(user);
+		String pwd = user.getPassword();
+		user.setPassword(passwordEncoder.encode(pwd));
+
+		log.info("ready to create user");
+		final User createdUser = userRepository.save(user);
+		log.info("User created, send confirmation email");
+		sendConfirmationMail( user.getEmail(), user.getActivationToken(), user.getFirstName() );
+		log.info("Confirmation email sent");
+		return createdUser;
+	}
+
+	private void setAccountBasics(User user) {
+		if(!isValidEmail(user.getEmail())) throw new InvalidEmailException("The submitted email address is not valid");
+
+		Optional<User> emailUsed = userRepository.findUserByEmail(user.getEmail());
+		if( emailUsed.isPresent() ){
+			throw new UserAlreadyExistAuthenticationException("User with given email already exists");
+		}
+		user.setSuspended(suspendByDefault);
+		user.setCreated(LocalDateTime.now());
+		String activationToken = UUID.randomUUID().toString();
+		user.setActivationToken(activationToken);
+	}
+
 	@Override
 	public boolean isValidPassword(String password) {
 		if(password==null) return false;
-		String regex = "^(?=.*\\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%]).{8,20}$";
+		StringBuilder sb = new StringBuilder();
+
+		sb.append("^(?=.*\\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[");
+		sb.append(passwordSpecialChars);	// special characters
+		sb.append("\"]).{");
+		sb.append(passwordMinLength);	// min password length
+		sb.append(",");
+		sb.append(passwordMaxLength);	// max password length
+		sb.append("}$");
+		String regex = sb.toString();
 		Pattern pattern = Pattern.compile(regex);
 		Matcher matcher = pattern.matcher(password);
 		return matcher.matches();
@@ -274,25 +386,28 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 
 	public void sendConfirmationMail(String userMail, String token, String name) {
 		try {
-			emailSenderService.addTo(userMail);
-			emailSenderService.setSubject("Please activate your account");
-			emailSenderService.setFrom(emailFrom);
+
+			HtmlEmail htmlEmail = new HtmlEmail();
+			emailSenderService.initialize(htmlEmail);
+
+			htmlEmail.addTo(userMail);
+			htmlEmail.setSubject("Please activate your account");
+			htmlEmail.setFrom(emailFrom);
 
 			StringBuilder builder = new StringBuilder();
-			String link = String.format("%suser/confirm-account?token=%s", emailSenderService.getAppUrl(),token);
+			String link = String.format("%suser/confirm-account/%s", emailSenderService.getAppUrl(),token);
 
 			builder.append(String.format("<h4>Dear %s</h4><p>Thank you for registering on %s.<br />", name, emailSenderService.getAppName()));
-			builder.append("Please click on the below link to activate your account:<br />");
+			builder.append("Please click on the link below to activate your account:<br />");
 			builder.append(String.format("<a href=\"%s\"><b>Activate Account</b></a><br /><br />", link));
 			builder.append(String.format("Alternatively, you can copy and paste this link in your browser:<br />%s <br /></p>", link));
 			builder.append(String.format("<p>Regards, <br />%s</p>", emailSenderService.getAppName()));
 			String body = builder.toString();
 
-			emailSenderService.setHtmlMsg(body);
+			htmlEmail.setHtmlMsg(body);
 			String plain = Jsoup.parse(body).text();
-			emailSenderService.setTextMsg(plain);
-			emailSenderService.send();
-
+			htmlEmail.setTextMsg(plain);
+			htmlEmail.send();
 		}
 		catch (Exception e){
 			log.warn(e.getMessage());
@@ -302,26 +417,32 @@ public class UserService implements UserDetailsService, UserServiceInterface {
 	@Override
 	public void sendPasswordResetMail(String emailAddress, String token, String name, LocalDateTime forgottenPasswordTokenExpire) {
 		try {
-			emailSenderService.addTo(emailAddress);
-			emailSenderService.setSubject("Forgotten password reset");
-			emailSenderService.setFrom(emailFrom);
+
+			DateTimeFormatter df = DateTimeFormatter.ofPattern("EEE, dd MMM uuuu, HH:mm");
+
+
+			HtmlEmail htmlEmail = new HtmlEmail();
+			emailSenderService.initialize(htmlEmail);
+			htmlEmail.addTo(emailAddress);
+			htmlEmail.setSubject("Forgotten password reset");
+			htmlEmail.setFrom(emailFrom);
 
 			StringBuilder builder = new StringBuilder();
-			String link = String.format("%suser/reset-password?token=%s", emailSenderService.getAppUrl(),token);
+			String link = String.format("%suser/reset-password/%s", emailSenderService.getAppUrl(),token);
 
 			builder.append(String.format("<h4>Dear %s</h4><p>We received your request to reset your password on %s.<br />", name, emailSenderService.getAppName()));
-			builder.append("Please click on the below link to reset your account password:<br />");
+			builder.append("Please click on the link below to reset your account password:<br />");
 			builder.append(String.format("<a href=\"%s\"><b>Reset Password</b></a><br /><br />", link));
 			builder.append(String.format("Alternatively, you can copy and paste this link in your browser:<br />%s <br /></p>", link));
-			builder.append(String.format("<p>The activation link will expire on %s.</p>", forgottenPasswordTokenExpire));
+			builder.append(String.format("<p>The activation link will expire on %s.</p>", forgottenPasswordTokenExpire.format(df)));
 			builder.append("<p>If you did not send this request, someone else may have tried to access your account. To be safe, we recommend that you logout of all your active sessions.</p>");
 			builder.append(String.format("<p>Regards, <br />%s</p>", emailSenderService.getAppName()));
 			String body = builder.toString();
 
-			emailSenderService.setHtmlMsg(body);
+			htmlEmail.setHtmlMsg(body);
 			String plain = Jsoup.parse(body).text();
-			emailSenderService.setTextMsg(plain);
-			emailSenderService.send();
+			htmlEmail.setTextMsg(plain);
+			htmlEmail.send();
 		}
 		catch (Exception e){
 			log.warn(e.getMessage());

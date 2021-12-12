@@ -14,5 +14,5 @@ public class JwtPasswordResetObjectRequest implements Serializable {
 	private static final long serialVersionUID = -5656176899813108345L;
 	private String token;
 	private String password;
-	private String passwordConfirm;
+	private String confirmPassword;
 }

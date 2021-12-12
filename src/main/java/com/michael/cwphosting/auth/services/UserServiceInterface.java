@@ -27,4 +27,8 @@ public interface UserServiceInterface {
 	User findUserByActivationToken(String token);
 	User findUserByForgottenPasswordToken(String token);
 	long countUsers();
+	User findUserById(String id);
+	void deleteUser(User user);
+
+	User updateUserStatus(String id, Boolean status);
 }

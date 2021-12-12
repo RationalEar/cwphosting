@@ -47,7 +47,7 @@ public class UserController {
 	}
 
 	@PostMapping
-	public ResponseEntity<?> createUserAccount(HttpServletRequest request, @RequestBody User data) {
+	public ResponseEntity<?> createUserAccount(@RequestBody User data) {
 		try {
 			User user = userService.signUpUser(data);
 			URI uri = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").buildAndExpand(user.getId()).toUri();
@@ -64,8 +64,15 @@ public class UserController {
 			User user = userService.getUser(request.getUsername());
 			if (user == null)
 				throw new UserNotFoundAuthenticationException("A valid username/email address is required");
+
+			if(user.getActivationToken()==null){
+				String token = UUID.randomUUID().toString();
+				user.setActivationToken(token);
+				userService.updateUser(user);
+			}
+
 			userService.sendConfirmationMail(user.getEmail(), user.getActivationToken(), user.getFirstName());
-			return ResponseEntity.ok(new JwtMessageResponse("An account activation email has been sent to your email address"));
+			return ResponseEntity.ok(new JwtMessageResponse("An account activation email has been sent to "+user.getEmail()));
 		}
 		catch (Exception e){
 			return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new JwtMessageResponse(e.getMessage()));
@@ -82,15 +89,15 @@ public class UserController {
 			user.setForgottenPasswordTokenExpire(LocalDateTime.now().plusSeconds(userService.getForgottenPasswordExpire()));
 			userService.updateUser(user);
 			userService.sendPasswordResetMail(user.getEmail(), token, user.getFirstName(), user.getForgottenPasswordTokenExpire());
-			return ResponseEntity.ok(new JwtMessageResponse("A password reset email has been sent to your email address."));
+			return ResponseEntity.ok(new JwtMessageResponse("A password reset email has been sent to "+user.getEmail()));
 		}
 		catch (Exception e){
 			return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new JwtMessageResponse(e.getMessage()));
 		}
 	}
 
-	@GetMapping("confirm-account")
-	public ResponseEntity<?> confirmAccount(@RequestParam(name = "token", required = true) String token){
+	@GetMapping("confirm-account/{token}")
+	public ResponseEntity<?> confirmAccount(@PathVariable String token){
 		try {
 			if (token == null || token.isEmpty()) throw new IOException("A valid activation token is required");
 			User user = userService.findUserByActivationToken(token);
@@ -117,7 +124,7 @@ public class UserController {
 			if (user == null) throw new UserNotFoundAuthenticationException("Unable to find user with submitted password reset token.");
 			if (user.getForgottenPasswordToken().equals(data.getToken()) && user.getForgottenPasswordTokenExpire().isAfter(LocalDateTime.now()) ) {
 
-				if( !data.getPassword().equals(data.getPasswordConfirm()) ) throw new InvalidPasswordException("The submitted passwords do not match");
+				if( !data.getPassword().equals(data.getConfirmPassword()) ) throw new InvalidPasswordException("The submitted passwords do not match");
 				if(!userService.isValidPassword(data.getPassword())) throw new InvalidPasswordException(userService.getPasswordValidationMessage());
 
 				user.setForgottenPasswordToken(null);

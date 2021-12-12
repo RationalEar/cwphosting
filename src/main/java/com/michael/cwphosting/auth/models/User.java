@@ -1,6 +1,15 @@
 package com.michael.cwphosting.auth.models;
 
+import com.fasterxml.jackson.annotation.JacksonAnnotation;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateDeserializer;
+import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer;
+import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
+import com.michael.cwphosting.auth.utilities.CustomDateSerializer;
+import com.michael.cwphosting.auth.utilities.CustomLocalDateTimeSerializer;
 import com.michael.cwphosting.auth.utilities.Md5Digest;
 import com.mongodb.lang.Nullable;
 import lombok.AllArgsConstructor;
@@ -11,6 +20,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -20,7 +30,10 @@ import java.util.Collection;
 @Slf4j
 @NoArgsConstructor
 @AllArgsConstructor
-public class User {
+public class User implements Serializable {
+
+	private static final long serialVersionUID = 8217676219297719109L;
+
 	@Id
 	private String id;
 	private String firstName;
@@ -30,9 +43,15 @@ public class User {
 	private String phoneNumber;
 	@Nullable
 	private Address address;
+
+	@JsonSerialize(using = LocalDateTimeSerializer.class)
+	@JsonDeserialize(using = LocalDateTimeDeserializer.class)
 	private LocalDateTime created;
-	@Nullable
+
+	@JsonSerialize(using = LocalDateTimeSerializer.class)
+	@JsonDeserialize(using = LocalDateTimeDeserializer.class)
 	private LocalDateTime lastLogin;
+
 	private boolean suspended;
 
 	@Nullable @JsonIgnore
@@ -44,12 +63,19 @@ public class User {
 	@Nullable @JsonIgnore
 	private LocalDateTime forgottenPasswordTokenExpire;
 
+	@JsonIgnore
 	private String password;
+
 	private int loginAttempts;
+
 	@Nullable
+	@JsonSerialize(using = LocalDateTimeSerializer.class)
+	@JsonDeserialize(using = LocalDateTimeDeserializer.class)
 	private LocalDateTime lastLoginAttempt;
+
 	@Nullable
 	private String failedLoginIpAddress;
+
 	private Collection<Role> roles = new ArrayList<>();
 
 	public User(String firstName, String lastName, String email, String phoneNumber, String password, Address address) {
